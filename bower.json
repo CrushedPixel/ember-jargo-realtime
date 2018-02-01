@@ -1,0 +1,26 @@
+{
+  "name": "ember-jargo-realtime",
+  "description": "Ember store mixin for jargo realtime feature.",
+  "main": "index.js",
+  "authors": [
+    "CrushedPixel <crushedpixelmaps@gmail.com>"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "ember-addon"
+  ],
+  "homepage": "",
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "test",
+    "tests"
+  ],
+  "dependencies": {
+    "glue": "glue-socket#^1.9.1"
+  },
+  "devDependencies": {
+    "glue": "glue-socket#^1.9.1"
+  }
+}

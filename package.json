@@ -1,7 +1,7 @@
 {
   "name": "ember-jargo-realtime",
-  "version": "0.0.0",
-  "description": "The default blueprint for ember-cli addons.",
+  "version": "0.0.1",
+  "description": "Ember store mixin for jargo realtime feature.",
   "keywords": [
     "ember-addon"
   ],
@@ -33,6 +33,7 @@
     "ember-cli-shims": "^1.1.0",
     "ember-cli-sri": "^2.1.0",
     "ember-cli-uglify": "^1.2.0",
+    "ember-concurrency": "^0.8.14",
     "ember-disable-prototype-extensions": "^1.1.2",
     "ember-export-application-global": "^2.0.0",
     "ember-load-initializers": "^1.0.0",
