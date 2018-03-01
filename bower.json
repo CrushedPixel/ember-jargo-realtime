@@ -18,9 +18,6 @@
     "tests"
   ],
   "dependencies": {
-    "glue": "glue-socket#^1.9.1"
-  },
-  "devDependencies": {
-    "glue": "glue-socket#^1.9.1"
+    "glue-socket": "^1.9.1"
   }
 }
