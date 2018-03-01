@@ -122,12 +122,9 @@ export default Ember.Mixin.create({
   host: null,
   baseURL: '/realtime/',
 
-  // init initializes subscriptions
-  // and cementMessages.
   init() {
     this._super(...arguments);
     this.set('subscriptions', {});
-    this.set('cementMessages', {});
     this.set('jsonapiModelNames', {});
   },
 
@@ -155,6 +152,9 @@ export default Ember.Mixin.create({
     return 'hi';
   },
 
+  // _push is called by the store internally whenever a
+  // record is pushed into the store.
+  // we override it to subscribe to models we're interested in.
   _push() {
     const pushed = this._super.apply(this, arguments);
 
