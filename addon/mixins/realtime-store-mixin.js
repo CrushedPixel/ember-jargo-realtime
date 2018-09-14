@@ -7,13 +7,16 @@ const RealtimeSocket = Ember.Object.extend({
   // socket is the glue instance used for
   // communication with the jargo backend.
   socket: null,
+  connectionMessage: null,
+  // onConnected is the function called
+  // after a connection to the socket was established.
+  onConnected: null,
   // onModelUpdated is the function called
   // when a model is updated.
   onModelUpdated: null,
   // onModelDeleted is the function called
   // when a model is deleted.
   onModelDeleted: null,
-  connectionMessage: null,
 
   subscribeCementChannel: null,
   deletedChannel: null,
@@ -28,12 +31,13 @@ const RealtimeSocket = Ember.Object.extend({
   },
 
   socketOnConnectedTask: task(function*() {
-    // TODO: ensure this gets called after reconnecting as well
     const mainChannel = CementChannel.create({
       channel: this.get('socket')
     });
 
-    yield mainChannel.send(yield this.connectionMessage())
+    yield mainChannel.send(yield this.connectionMessage());
+
+    this.get('onConnected')();
   }),
 
   async subscribe(model, id) {
@@ -185,6 +189,8 @@ export default Ember.Mixin.create({
           subscriptions[modelName] = ids;
         }
       }
+
+      this.set('subscriptions', subscriptions);
     }
 
     return pushed;
@@ -202,6 +208,7 @@ export default Ember.Mixin.create({
       socket = RealtimeSocket.create({
         socket: glueSocket,
         connectionMessage: this.connectionMessage.bind(this),
+        onConnected: this.onConnected.bind(this),
         onModelUpdated: this.onModelUpdated.bind(this),
         onModelDeleted: this.onModelDeleted.bind(this)
       });
@@ -219,6 +226,18 @@ export default Ember.Mixin.create({
     this.get('jsonapiModelNames')[jsonapiModelName] = modelName;
     yield this.getSocket().subscribe(jsonapiModelName, id);
   }),
+
+  onConnected() {
+    // resubscribe to all previously subscribed models
+    const subscriptions = this.get('subscriptions');
+    for (const modelName in subscriptions) {
+      if (!subscriptions.hasOwnProperty(modelName)) continue;
+
+      for (const id of subscriptions[modelName]) {
+        this.get('subscribeTask').perform(modelName, id);
+      }
+    }
+  },
 
   onModelUpdated(jsonapiModelName, id, payload) {
     const modelName = this.get('jsonapiModelNames')[jsonapiModelName];
