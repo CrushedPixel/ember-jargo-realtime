@@ -1,6 +1,6 @@
 import Ember from 'ember';
 import UUID from 'ember-uuid';
-import { task } from 'ember-concurrency';
+import { task, timeout } from 'ember-concurrency';
 
 const RealtimeSocket = Ember.Object.extend({
 
@@ -44,7 +44,7 @@ const RealtimeSocket = Ember.Object.extend({
     return await this.get('subscribeCementChannel').send(JSON.stringify({
       model: model,
       id: id
-    }))
+    }));
   },
 
   init() {
@@ -115,7 +115,7 @@ const CementChannel = Ember.Object.extend({
         id: id,
         data: data
       }));
-      this.get('cementMessages')[id] = {resolve, reject};
+      this.get('cementMessages')[id] = { resolve, reject };
     });
   }
 
@@ -135,6 +135,11 @@ export default Ember.Mixin.create({
   // socket is the RealtimeSocket instance
   // being used to communicate with jargo.
   socket: null,
+
+  // the connection state of the socket
+  // as an observable ember variable.
+  // updated frequently by updateSocketStateTask.
+  socketState: 'disconnected',
 
   // subscriptions is an object containing all
   // models the store is subscribed to.
@@ -214,6 +219,9 @@ export default Ember.Mixin.create({
       });
 
       this.set('socket', socket);
+
+      // start the task polling the socket state variable
+      this.get('updateSocketStateTask').perform();
     }
 
     return socket;
@@ -225,6 +233,21 @@ export default Ember.Mixin.create({
     const jsonapiModelName = this.adapterFor(modelName).pathForType(modelName);
     this.get('jsonapiModelNames')[jsonapiModelName] = modelName;
     yield this.getSocket().subscribe(jsonapiModelName, id);
+  }),
+
+  updateSocketStateTask: task(function*() {
+    // instead of listening to the socket's events,
+    // we frequently poll the socket's state and forward
+    // the value to the socketState variable so
+    // it can be observed by Ember objects.
+    while (true) {
+      const newState = this.get('socket').state();
+      if (newState !== this.get('socketState')) {
+        this.set('socketState', newState);
+      }
+
+      yield timeout(100);
+    }
   }),
 
   onConnected() {
