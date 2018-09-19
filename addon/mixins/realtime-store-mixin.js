@@ -7,10 +7,26 @@ const RealtimeSocket = Ember.Object.extend({
   // socket is the glue instance used for
   // communication with the jargo backend.
   socket: null,
+
+  // the connection state of the websocket
+  // as an observable ember variable.
+  // updated frequently by updateSocketStateTask.
+  state: 'disconnected',
+
+  // whether the socket is connected to the realtime
+  // instance and the connection was accepted.
+  connected: false,
+
   connectionMessage: null,
   // onConnected is the function called
-  // after a connection to the socket was established.
+  // after a connection to the realtime instance
+  // was established.
   onConnected: null,
+
+  // onDisconnected is the function called
+  // when the socket connection was lost.
+  onDisconnected: null,
+
   // onModelUpdated is the function called
   // when a model is updated.
   onModelUpdated: null,
@@ -23,21 +39,55 @@ const RealtimeSocket = Ember.Object.extend({
   updatedChannel: null,
 
   socketOnError() {
-    console.error('socket error', ...arguments)
+    Ember.Logger.error('socket error', ...arguments)
   },
 
   socketOnConnected() {
     this.get('socketOnConnectedTask').perform();
   },
 
+  socketOnDisconnected() {
+    this.set('connected', false);
+    this.get('onDisconnected')();
+  },
+
   socketOnConnectedTask: task(function*() {
-    const mainChannel = CementChannel.create({
-      channel: this.get('socket')
-    });
-
-    yield mainChannel.send(yield this.connectionMessage());
-
+    yield this.sendConnectionMessage(yield this.connectionMessage());
+    this.set('connected', true);
     this.get('onConnected')();
+  }),
+
+  sendConnectionMessage(connectionMessage) {
+    return new Promise((resolve, reject) => {
+      const socket = this.get('socket');
+
+      socket.onMessage((message) => {
+        if (message === 'CONNECTION_TIMEOUT') {
+          reject(new Error('Did not send a connection message in time'));
+        } else if (message === 'CONNECTION_DISALLOWED') {
+          reject(new Error('Connection was not accepted'));
+        } else if (message === 'CONNECTION_ACCEPTED') {
+          resolve();
+        }
+      });
+
+      socket.send(connectionMessage);
+    });
+  },
+
+  updateSocketStateTask: task(function*() {
+    // instead of listening to the socket's events,
+    // we frequently poll the socket's state and forward
+    // the value to the socketState variable so
+    // it can be observed by Ember objects.
+    while (true) {
+      const newState = this.get('socket').state();
+      if (newState !== this.get('state')) {
+        this.set('state', newState);
+      }
+
+      yield timeout(100);
+    }
   }),
 
   async subscribe(model, id) {
@@ -49,10 +99,12 @@ const RealtimeSocket = Ember.Object.extend({
 
   init() {
     this._super(...arguments);
+
     const socket = this.get('socket');
 
     socket.on('error', this.socketOnError.bind(this));
     socket.on('connected', this.socketOnConnected.bind(this));
+    socket.on('disconnected', this.socketOnDisconnected.bind(this));
 
     this.set('subscribeCementChannel', CementChannel.create({
       channel: socket.channel('subscribe')
@@ -65,6 +117,9 @@ const RealtimeSocket = Ember.Object.extend({
     const updatedChannel = socket.channel('updated');
     updatedChannel.onMessage(this._onModelUpdated.bind(this));
     this.set('updatedChannel', updatedChannel);
+
+    // start the task polling the socket state variable
+    this.get('updateSocketStateTask').perform();
   },
 
   _onModelDeleted(data) {
@@ -130,16 +185,14 @@ export default Ember.Mixin.create({
     this._super(...arguments);
     this.set('subscriptions', {});
     this.set('jsonapiModelNames', {});
+
+    // implicitly initialize the socket connection
+    this.getSocket();
   },
 
   // socket is the RealtimeSocket instance
   // being used to communicate with jargo.
   socket: null,
-
-  // the connection state of the socket
-  // as an observable ember variable.
-  // updated frequently by updateSocketStateTask.
-  socketState: 'disconnected',
 
   // subscriptions is an object containing all
   // models the store is subscribed to.
@@ -187,8 +240,13 @@ export default Ember.Mixin.create({
 
           // subscribe to model if not yet subscribed
           if (!ids.includes(model.id)) {
-            this.get('subscribeTask').perform(modelName, model.id);
             ids.push(model.id);
+            if (this.getSocket().get('connected')) {
+              // only try to subscribe if currently connected.
+              // if not connected, the onConnected()
+              // will automatically subscribe to the resource.
+              this.get('subscribeTask').perform(modelName, model.id);
+            }
           }
 
           subscriptions[modelName] = ids;
@@ -207,21 +265,26 @@ export default Ember.Mixin.create({
     let socket = this.get('socket');
     if (socket === null) {
       const glueSocket = glue(this.get('host'), {
-        baseURL: this.get('baseURL')
+        baseURL: this.get('baseURL'),
+
+        connectTimeout: 10000,
+
+        reconnect: true,
+        reconnectDelay: 1000,
+        reconnectDelayMax: 5000,
+        reconnectAttempts: 0 // endless
       });
 
       socket = RealtimeSocket.create({
         socket: glueSocket,
         connectionMessage: this.connectionMessage.bind(this),
         onConnected: this.onConnected.bind(this),
+        onDisconnected: this.onDisconnected.bind(this),
         onModelUpdated: this.onModelUpdated.bind(this),
         onModelDeleted: this.onModelDeleted.bind(this)
       });
 
       this.set('socket', socket);
-
-      // start the task polling the socket state variable
-      this.get('updateSocketStateTask').perform();
     }
 
     return socket;
@@ -235,21 +298,6 @@ export default Ember.Mixin.create({
     yield this.getSocket().subscribe(jsonapiModelName, id);
   }),
 
-  updateSocketStateTask: task(function*() {
-    // instead of listening to the socket's events,
-    // we frequently poll the socket's state and forward
-    // the value to the socketState variable so
-    // it can be observed by Ember objects.
-    while (true) {
-      const newState = this.get('socket').state();
-      if (newState !== this.get('socketState')) {
-        this.set('socketState', newState);
-      }
-
-      yield timeout(100);
-    }
-  }),
-
   onConnected() {
     // resubscribe to all previously subscribed models
     const subscriptions = this.get('subscriptions');
@@ -261,6 +309,8 @@ export default Ember.Mixin.create({
       }
     }
   },
+
+  onDisconnected() {},
 
   onModelUpdated(jsonapiModelName, id, payload) {
     const modelName = this.get('jsonapiModelNames')[jsonapiModelName];
