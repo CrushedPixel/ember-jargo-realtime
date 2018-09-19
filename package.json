@@ -1,6 +1,6 @@
 {
   "name": "ember-jargo-realtime",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Ember store mixin for jargo realtime feature.",
   "keywords": [
     "ember-addon"
